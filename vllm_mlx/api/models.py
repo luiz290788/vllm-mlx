@@ -308,6 +308,7 @@ class ModelInfo(BaseModel):
     object: str = "model"
     created: int = Field(default_factory=lambda: int(time.time()))
     owned_by: str = "vllm-mlx"
+    context_window: int | None = None
 
 
 class ModelsResponse(BaseModel):

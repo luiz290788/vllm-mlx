@@ -396,6 +396,28 @@ class TestModelsEndpoint:
         assert info.id == "mlx-community/Llama-3.2-3B-Instruct-4bit"
         assert info.object == "model"
         assert info.owned_by == "vllm-mlx"
+        assert info.context_window is None
+
+    def test_model_info_with_context_window(self):
+        info = ModelInfo(
+            id="mlx-community/Llama-3.2-3B-Instruct-4bit",
+            context_window=131072,
+        )
+        assert info.context_window == 131072
+
+    def test_model_info_context_window_none_by_default(self):
+        info = ModelInfo(id="test-model")
+        assert info.context_window is None
+
+    def test_model_info_context_window_serialization(self):
+        info = ModelInfo(id="test-model", context_window=8192)
+        data = info.model_dump()
+        assert data["context_window"] == 8192
+
+    def test_model_info_context_window_none_serialization(self):
+        info = ModelInfo(id="test-model")
+        data = info.model_dump()
+        assert data["context_window"] is None
 
     def test_models_response(self):
         resp = ModelsResponse(
@@ -663,3 +685,168 @@ class TestModelSerialization:
         )
         data = schema.model_dump(by_alias=True)
         assert "schema" in data
+
+
+class TestExtractContextWindow:
+    """Tests for the extract_context_window helper function."""
+
+    def test_none_config(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        assert extract_context_window(None) is None
+
+    def test_dict_config_max_position_embeddings(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        config = {"max_position_embeddings": 131072}
+        assert extract_context_window(config) == 131072
+
+    def test_dict_config_max_seq_len(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        config = {"max_seq_len": 4096}
+        assert extract_context_window(config) == 4096
+
+    def test_dict_config_seq_length(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        config = {"seq_length": 8192}
+        assert extract_context_window(config) == 8192
+
+    def test_dict_config_n_positions(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        config = {"n_positions": 1024}
+        assert extract_context_window(config) == 1024
+
+    def test_dict_config_max_sequence_length(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        config = {"max_sequence_length": 2048}
+        assert extract_context_window(config) == 2048
+
+    def test_dict_config_sliding_window(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        config = {"sliding_window": 4096}
+        assert extract_context_window(config) == 4096
+
+    def test_dict_config_priority_order(self):
+        """max_position_embeddings should take priority over other attrs."""
+        from vllm_mlx.engine.base import extract_context_window
+
+        config = {
+            "max_position_embeddings": 131072,
+            "max_seq_len": 4096,
+            "sliding_window": 2048,
+        }
+        assert extract_context_window(config) == 131072
+
+    def test_dict_config_nested_text_config(self):
+        """VLM models often have context window in text_config."""
+        from vllm_mlx.engine.base import extract_context_window
+
+        config = {
+            "model_type": "qwen2_vl",
+            "text_config": {"max_position_embeddings": 32768},
+        }
+        assert extract_context_window(config) == 32768
+
+    def test_dict_config_empty(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        assert extract_context_window({}) is None
+
+    def test_dict_config_zero_value_ignored(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        config = {"max_position_embeddings": 0}
+        assert extract_context_window(config) is None
+
+    def test_dict_config_negative_value_ignored(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        config = {"max_position_embeddings": -1}
+        assert extract_context_window(config) is None
+
+    def test_dict_config_non_int_value_ignored(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        config = {"max_position_embeddings": "not_a_number"}
+        assert extract_context_window(config) is None
+
+    def test_object_config_max_position_embeddings(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        class FakeConfig:
+            max_position_embeddings = 131072
+
+        assert extract_context_window(FakeConfig()) == 131072
+
+    def test_object_config_n_positions(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        class FakeConfig:
+            n_positions = 1024
+
+        assert extract_context_window(FakeConfig()) == 1024
+
+    def test_object_config_nested_text_config(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        class FakeTextConfig:
+            max_position_embeddings = 32768
+
+        class FakeConfig:
+            text_config = FakeTextConfig()
+
+        assert extract_context_window(FakeConfig()) == 32768
+
+    def test_object_config_no_matching_attrs(self):
+        from vllm_mlx.engine.base import extract_context_window
+
+        class FakeConfig:
+            vocab_size = 32000
+            hidden_size = 4096
+
+        assert extract_context_window(FakeConfig()) is None
+
+    def test_base_engine_context_window_default(self):
+        """BaseEngine.context_window should return None by default."""
+        from vllm_mlx.engine.base import BaseEngine
+
+        # BaseEngine is abstract, but context_window has a default impl
+        # We can test it via a minimal concrete subclass
+        class MinimalEngine(BaseEngine):
+            @property
+            def model_name(self):
+                return "test"
+
+            @property
+            def is_mllm(self):
+                return False
+
+            @property
+            def tokenizer(self):
+                return None
+
+            async def start(self):
+                pass
+
+            async def stop(self):
+                pass
+
+            async def generate(self, prompt, **kwargs):
+                pass
+
+            async def stream_generate(self, prompt, **kwargs):
+                pass
+
+            async def chat(self, messages, **kwargs):
+                pass
+
+            async def stream_chat(self, messages, **kwargs):
+                pass
+
+        engine = MinimalEngine()
+        assert engine.context_window is None

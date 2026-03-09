@@ -9,7 +9,7 @@ Provides two engine implementations:
 Also re-exports core engine components for backwards compatibility.
 """
 
-from .base import BaseEngine, GenerationOutput
+from .base import BaseEngine, GenerationOutput, extract_context_window
 from .simple import SimpleEngine
 from .batched import BatchedEngine
 from .hybrid import HybridEngine
@@ -20,6 +20,7 @@ from ..engine_core import EngineCore, AsyncEngineCore, EngineConfig
 __all__ = [
     "BaseEngine",
     "GenerationOutput",
+    "extract_context_window",
     "SimpleEngine",
     "BatchedEngine",
     "HybridEngine",

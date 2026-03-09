@@ -37,7 +37,7 @@ from typing import Any
 from mlx_lm import load
 
 from ..model_registry import get_registry
-from .base import BaseEngine, GenerationOutput
+from .base import BaseEngine, GenerationOutput, extract_context_window
 from .batched import BatchedEngine
 from .simple import SimpleEngine
 
@@ -126,6 +126,24 @@ class HybridEngine(BaseEngine):
     def tokenizer(self) -> Any:
         """Get the tokenizer."""
         return self._shared_tokenizer
+
+    @property
+    def context_window(self) -> int | None:
+        """Get the model's context window size from the HuggingFace config."""
+        if not self._loaded:
+            return None
+        # Delegate to the active sub-engine if available
+        if self._simple is not None:
+            return self._simple.context_window
+        if self._batched is not None:
+            return self._batched.context_window
+        # Fallback: try shared model directly (MLX models use .args, not .config)
+        if self._shared_model is not None:
+            config = getattr(self._shared_model, "args", None) or getattr(
+                self._shared_model, "config", None
+            )
+            return extract_context_window(config)
+        return None
 
     async def start(self) -> None:
         """Start the engine (load shared model and initialize sub-engines)."""

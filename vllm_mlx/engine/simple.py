@@ -14,7 +14,7 @@ from typing import Any
 from ..api.tool_calling import convert_tools_for_template
 from ..api.utils import is_mllm_model
 from ..utils.chat_template import apply_chat_template as shared_apply_chat_template
-from .base import BaseEngine, GenerationOutput
+from .base import BaseEngine, GenerationOutput, extract_context_window
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,26 @@ class SimpleEngine(BaseEngine):
         if self._is_mllm:
             return getattr(self._model, "processor", None)
         return self._model.tokenizer
+
+    @property
+    def context_window(self) -> int | None:
+        """Get the model's context window size from the HuggingFace config."""
+        if not self._loaded or self._model is None:
+            return None
+        if self._is_mllm:
+            # MLLM: config is a dict loaded via mlx-vlm's load_config
+            config = getattr(self._model, "config", None)
+            return extract_context_window(config)
+        else:
+            # LLM: MLX models use .args (not .config) for model configuration
+            inner_model = getattr(self._model, "model", None)
+            if inner_model is not None:
+                config = getattr(inner_model, "args", None) or getattr(
+                    inner_model, "config", None
+                )
+            else:
+                config = None
+            return extract_context_window(config)
 
     async def start(self) -> None:
         """Start the engine (load model if not loaded)."""
@@ -337,9 +357,13 @@ class SimpleEngine(BaseEngine):
                 # then generate directly.
                 enable_thinking_val = kwargs.pop("enable_thinking", None)
                 prompt = self.build_prompt(
-                    messages, tools=tools,
-                    **({"enable_thinking": enable_thinking_val}
-                       if enable_thinking_val is not None else {}),
+                    messages,
+                    tools=tools,
+                    **(
+                        {"enable_thinking": enable_thinking_val}
+                        if enable_thinking_val is not None
+                        else {}
+                    ),
                 )
                 # Run in thread pool to allow asyncio timeout to work
                 output = await asyncio.to_thread(

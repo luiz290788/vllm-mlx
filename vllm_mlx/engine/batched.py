@@ -18,7 +18,7 @@ from typing import Any
 from ..api.tool_calling import convert_tools_for_template
 from ..api.utils import clean_output_text, extract_multimodal_content, is_mllm_model
 from ..utils.chat_template import apply_chat_template as shared_apply_chat_template
-from .base import BaseEngine, GenerationOutput
+from .base import BaseEngine, GenerationOutput, extract_context_window
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +185,23 @@ class BatchedEngine(BaseEngine):
         if self._is_mllm and self._processor:
             return getattr(self._processor, "tokenizer", self._processor)
         return self._tokenizer
+
+    @property
+    def context_window(self) -> int | None:
+        """Get the model's context window size from the HuggingFace config."""
+        if not self._loaded:
+            return None
+        if self._is_mllm and self._mllm_instance is not None:
+            # MLLM: config is a dict loaded via mlx-vlm's load_config
+            config = getattr(self._mllm_instance, "config", None)
+            return extract_context_window(config)
+        elif self._model is not None:
+            # LLM: MLX models use .args (not .config) for model configuration
+            config = getattr(self._model, "args", None) or getattr(
+                self._model, "config", None
+            )
+            return extract_context_window(config)
+        return None
 
     async def start(self) -> None:
         """Start the engine (load model if not loaded)."""
